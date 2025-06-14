@@ -12,9 +12,11 @@
         .sort-indicator { display: inline-block; width: 1em; text-align: center; }
         .group-row td { font-weight: 600; background-color: #f3f4f6; }
         .variation-row { display: none; } /* Variações começam escondidas */
-        .variation-row.visible { display: table-row; }
+        .variation-row.visible { display: table-row; background-color: #fff; }
         .variation-row td:first-child { padding-left: 2.5rem; }
         .active-variation { background-color: #dbeafe !important; border-left: 4px solid #2563eb; }
+        .modal-content { max-height: 90vh; overflow-y: auto; }
+        #modalProduto { transition: opacity 0.3s ease; }
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
     </style>
 </head>
@@ -47,7 +49,7 @@
             <table id="tabelaProdutos" class="min-w-full text-left text-sm whitespace-nowrap">
                 <thead class="bg-blue-800 text-white">
                     <tr>
-                        <th class="px-4 py-3 w-40">Nome do Item / Opções</th>
+                        <th class="px-4 py-3 w-48">Nome do Item / Opções</th>
                         <th class="px-4 py-3">Loja</th>
                         <th class="px-4 py-3">Preço (R$)</th>
                         <th class="px-4 py-3">Qtd</th>
@@ -63,93 +65,152 @@
 
         <section class="mt-6 flex gap-6 flex-wrap justify-end text-gray-800 font-semibold text-lg">
             <div>Total de Grupos: <span id="totalGrupos" class="font-bold text-blue-800">0</span></div>
-            <div>Orçamento (Menores Preços): <span id="valorTotal" class="font-bold text-green-700">R$ 0,00</span></div>
+            <div>Orçamento (Opções Ativas): <span id="valorTotal" class="font-bold text-green-700">R$ 0,00</span></div>
         </section>
     </main>
 
-    <div id="modalProduto" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden">
+    <div id="modalProduto" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden opacity-0">
+        <div class="bg-white rounded-lg p-6 max-w-lg w-full relative shadow-lg m-4 modal-content">
+            <button id="btnFecharModal" class="absolute top-3 right-3 text-gray-500 hover:text-gray-800" aria-label="Fechar modal"><i data-lucide="x" class="w-6 h-6"></i></button>
+            <h2 id="tituloModal" class="text-2xl font-bold mb-4 text-gray-800">Adicionar Produto</h2>
+            <form id="formProduto" class="space-y-4">
+                <input type="hidden" id="form-id" />
+                <input type="hidden" id="form-groupId" />
+                <input type="hidden" id="form-mode" />
+                <div>
+                    <label for="form-nome" class="block font-medium mb-1">Nome do Item</label>
+                    <input type="text" id="form-nome" class="w-full border rounded px-3 py-2" required />
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label for="form-preco" class="block font-medium mb-1">Preço (R$)</label>
+                        <input type="number" id="form-preco" min="0" step="0.01" class="w-full border rounded px-3 py-2" required />
+                    </div>
+                    <div>
+                        <label for="form-quantidade" class="block font-medium mb-1">Quantidade</label>
+                        <input type="number" id="form-quantidade" min="1" step="1" class="w-full border rounded px-3 py-2" value="1" required />
+                    </div>
+                </div>
+                <div>
+                    <label for="form-loja" class="block font-medium mb-1">Loja</label>
+                    <input type="text" id="form-loja" class="w-full border rounded px-3 py-2" required />
+                </div>
+                <div>
+                    <label for="form-url" class="block font-medium mb-1">URL do Produto</label>
+                    <input type="url" id="form-url" class="w-full border rounded px-3 py-2" placeholder="https://..." required />
+                </div>
+                <div>
+                    <label for="form-imagem" class="block font-medium mb-1">URL da Imagem</label>
+                    <input type="url" id="form-imagem" class="w-full border rounded px-3 py-2" placeholder="https://..." />
+                </div>
+                <div class="flex justify-end gap-3 pt-4">
+                    <button type="button" id="btnCancelarModal" class="bg-gray-300 hover:bg-gray-400 px-4 py-2 rounded">Cancelar</button>
+                    <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">Salvar</button>
+                </div>
+            </form>
         </div>
+    </div>
 
 <script>
 document.addEventListener('DOMContentLoaded', () => {
     let produtos = [];
-    let sortConfig = { key: 'nome', order: 'asc' }; // Ordenação padrão
+    const DOMElements = {
+        tbody: document.querySelector('#tabelaProdutos tbody'),
+        filtroBusca: document.getElementById('filtroBusca'),
+        btnLimparFiltros: document.getElementById('btnLimparFiltros'),
+        btnAddProduto: document.getElementById('btnAddProduto'),
+        totalGrupos: document.getElementById('totalGrupos'),
+        valorTotal: document.getElementById('valorTotal'),
+        msgSemResultados: document.getElementById('msgSemResultados'),
+        modal: {
+            overlay: document.getElementById('modalProduto'),
+            titulo: document.getElementById('tituloModal'),
+            form: document.getElementById('formProduto'),
+            id: document.getElementById('form-id'),
+            groupId: document.getElementById('form-groupId'),
+            mode: document.getElementById('form-mode'),
+            nome: document.getElementById('form-nome'),
+            preco: document.getElementById('form-preco'),
+            quantidade: document.getElementById('form-quantidade'),
+            loja: document.getElementById('form-loja'),
+            url: document.getElementById('form-url'),
+            imagem: document.getElementById('form-imagem'),
+            btnFechar: document.getElementById('btnFecharModal'),
+            btnCancelar: document.getElementById('btnCancelarModal'),
+        },
+        btnExportarHTML: document.getElementById('btnExportarHTML'),
+        btnExportarCSV: document.getElementById('btnExportarCSV'),
+    };
 
-    // Carregar do localStorage
+    const salvarEstado = () => localStorage.setItem('produtosCotacaoV3.1', JSON.stringify(produtos));
+    
     const carregarEstado = () => {
-        const json = localStorage.getItem('produtosCotacaoV3');
+        const json = localStorage.getItem('produtosCotacaoV3.1');
         produtos = json ? JSON.parse(json) : [];
-        // Garante que cada grupo tenha uma opção ativa
         produtos = garantirOpcaoAtivaPorGrupo(produtos);
     };
 
-    const salvarEstado = () => localStorage.setItem('produtosCotacaoV3', JSON.stringify(produtos));
+    const gerarId = () => Date.now();
 
-    const DOMElements = { /* ... Mantenha o mesmo objeto DOM da versão anterior ... */ };
-    
-    const garantirOpcaoAtivaPorGrupo = (listaProdutos) => {
-        const grupos = agruparProdutos(listaProdutos);
-        Object.values(grupos).forEach(grupo => {
-            const temAtiva = grupo.some(p => p.ativo);
-            if (!temAtiva && grupo.length > 0) {
-                // Se nenhum está ativo, ativa o de menor preço
-                let menorPrecoItem = grupo.reduce((min, p) => p.preco < min.preco ? p : min, grupo[0]);
-                menorPrecoItem.ativo = true;
-            }
-        });
-        return listaProdutos;
-    };
-
-    const agruparProdutos = (listaProdutos) => {
-        return listaProdutos.reduce((acc, p) => {
+    const agruparProdutos = () => {
+        return produtos.reduce((acc, p) => {
             (acc[p.groupId] = acc[p.groupId] || []).push(p);
             return acc;
         }, {});
     };
 
-    const calcularTotais = () => {
-        const grupos = agruparProdutos(produtos);
-        document.getElementById('totalGrupos').textContent = Object.keys(grupos).length;
-        
-        const valorTotal = Object.values(grupos).reduce((total, grupo) => {
-            const itemAtivo = grupo.find(p => p.ativo) || grupo[0]; // Pega o ativo ou o primeiro como fallback
-            if (itemAtivo) {
-                total += itemAtivo.preco * itemAtivo.quantidade;
+    const garantirOpcaoAtivaPorGrupo = (listaProdutos) => {
+        const grupos = listaProdutos.reduce((acc, p) => {
+            (acc[p.groupId] = acc[p.groupId] || []).push(p);
+            return acc;
+        }, {});
+        Object.values(grupos).forEach(grupo => {
+            const temAtiva = grupo.some(p => p.ativo);
+            if (!temAtiva && grupo.length > 0) {
+                let menorPrecoItem = grupo.reduce((min, p) => (p.preco * p.quantidade) < (min.preco * min.quantidade) ? p : min, grupo[0]);
+                const itemOriginal = listaProdutos.find(p => p.id === menorPrecoItem.id);
+                if (itemOriginal) itemOriginal.ativo = true;
             }
+        });
+        return listaProdutos;
+    };
+
+    const calcularTotais = () => {
+        const grupos = agruparProdutos();
+        DOMElements.totalGrupos.textContent = Object.keys(grupos).length;
+        const valorTotal = Object.values(grupos).reduce((total, grupo) => {
+            const itemAtivo = grupo.find(p => p.ativo) || grupo[0];
+            if (itemAtivo) total += itemAtivo.preco * itemAtivo.quantidade;
             return total;
         }, 0);
-        document.getElementById('valorTotal').textContent = valorTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        DOMElements.valorTotal.textContent = valorTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
     };
 
     const renderizar = () => {
-        const tbody = document.querySelector('#tabelaProdutos tbody');
+        const tbody = DOMElements.tbody;
         tbody.innerHTML = '';
-        const termoBusca = document.getElementById('filtroBusca').value.trim().toLowerCase();
+        const termoBusca = DOMElements.filtroBusca.value.trim().toLowerCase();
         
-        const grupos = agruparProdutos(produtos);
-        let gruposFiltrados = Object.values(grupos).filter(grupo => {
-            return grupo.some(p => p.nome.toLowerCase().includes(termoBusca) || p.loja.toLowerCase().includes(termoBusca));
-        });
+        const grupos = agruparProdutos();
+        let gruposFiltrados = Object.values(grupos).filter(grupo => 
+            grupo.some(p => p.nome.toLowerCase().includes(termoBusca) || p.loja.toLowerCase().includes(termoBusca))
+        );
 
-        // Ordenar os grupos pelo nome do primeiro item
-        gruposFiltrados.sort((a, b) => a[0].nome.localeCompare(b[0].nome));
+        DOMElements.msgSemResultados.classList.toggle('hidden', gruposFiltrados.length > 0);
 
-        document.getElementById('msgSemResultados').classList.toggle('hidden', gruposFiltrados.length > 0);
-
-        gruposFiltrados.forEach(grupo => {
+        gruposFiltrados.sort((a, b) => a[0].nome.localeCompare(b[0].nome)).forEach(grupo => {
             const itemAtivo = grupo.find(p => p.ativo) || grupo[0];
             const variacoes = grupo.filter(p => p.id !== itemAtivo.id);
-
-            // Renderiza a linha principal do grupo (item ativo)
-            const trGroup = document.createElement('tr');
+            const subtotal = itemAtivo.preco * itemAtivo.quantidade;
+            
+            const trGroup = tbody.insertRow();
             trGroup.className = 'group-row border-b';
             trGroup.dataset.groupId = itemAtivo.groupId;
-
-            const subtotal = itemAtivo.preco * itemAtivo.quantidade;
+            
             trGroup.innerHTML = `
                 <td class="px-4 py-3 flex items-center gap-2">
-                    ${grupo.length > 1 ? `<button class="expand-btn text-blue-600"><i data-lucide="chevron-right" class="w-4 h-4"></i></button>` : '<div class="w-6"></div>'}
-                    <span>${itemAtivo.nome} ${grupo.length > 1 ? `<span class="text-xs font-normal text-gray-500">(+${variacoes.length})</span>` : ''}</span>
+                    ${grupo.length > 1 ? `<button class="expand-btn text-blue-600 p-1 rounded-full hover:bg-blue-100"><i data-lucide="chevron-right" class="w-4 h-4"></i></button>` : '<div class="w-8"></div>'}
+                    <span>${itemAtivo.nome} ${grupo.length > 1 ? `<span class="text-xs font-normal text-gray-500">(${grupo.length} opções)</span>` : ''}</span>
                 </td>
                 <td class="px-4 py-3">${itemAtivo.loja}</td>
                 <td class="px-4 py-3">${itemAtivo.preco.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
@@ -163,11 +224,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                 </td>
             `;
-            tbody.appendChild(trGroup);
 
-            // Renderiza as linhas das variações (escondidas)
             grupo.forEach(variacao => {
-                const trVar = document.createElement('tr');
+                const trVar = tbody.insertRow();
                 trVar.className = 'variation-row border-b hover:bg-gray-50';
                 trVar.dataset.groupId = variacao.groupId;
                 trVar.dataset.id = variacao.id;
@@ -175,7 +234,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 const subtotalVar = variacao.preco * variacao.quantidade;
                 trVar.innerHTML = `
-                    <td class="px-4 py-3 text-gray-700">↳ Opção Loja</td>
+                    <td class="px-4 py-3 text-gray-700 flex items-center">
+                        <div class="w-8 flex justify-center"><i data-lucide="corner-down-right" class="w-4 h-4 text-gray-400"></i></div>
+                        <img src="${variacao.imagem || 'https://via.placeholder.com/40'}" alt="" class="h-8 w-8 object-contain rounded mr-2" onerror="this.style.display='none'">
+                        ${variacao.loja}
+                    </td>
                     <td class="px-4 py-3">${variacao.loja}</td>
                     <td class="px-4 py-3">${variacao.preco.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
                     <td class="px-4 py-3">${variacao.quantidade}</td>
@@ -183,65 +246,135 @@ document.addEventListener('DOMContentLoaded', () => {
                     <td class="px-4 py-3"><a href="${variacao.url}" target="_blank" class="text-blue-600 hover:underline">Visitar</a></td>
                     <td class="px-4 py-3">
                         <div class="flex gap-2">
-                            <button class="activate-btn text-gray-500" title="Tornar esta a opção principal"><i data-lucide="check-circle-2" class="w-5 h-5"></i></button>
-                            <button class="edit-btn text-blue-600" title="Editar esta Opção"><i data-lucide="edit-2" class="w-5 h-5"></i></button>
-                            <button class="delete-btn text-red-600" title="Excluir esta Opção"><i data-lucide="trash-2" class="w-5 h-5"></i></button>
+                            <button class="activate-btn text-gray-500 hover:text-green-600 disabled:opacity-50" title="Tornar esta a opção ativa" ${variacao.ativo ? 'disabled' : ''}><i data-lucide="check-circle-2" class="w-5 h-5"></i></button>
+                            <button class="edit-btn text-blue-600 hover:text-blue-900" title="Editar esta Opção"><i data-lucide="edit-2" class="w-5 h-5"></i></button>
+                            <button class="delete-btn text-red-600 hover:text-red-900" title="Excluir esta Opção"><i data-lucide="trash-2" class="w-5 h-5"></i></button>
                         </div>
                     </td>
                 `;
-                tbody.appendChild(trVar);
             });
         });
-
-        calcularTotais();
         salvarEstado();
+        calcularTotais();
         lucide.createIcons();
     };
 
-    // --- Lógica de Eventos ---
-    const tbody = document.querySelector('#tabelaProdutos tbody');
-    tbody.addEventListener('click', e => {
+    const abrirModal = (modo, data = null) => {
+        const m = DOMElements.modal;
+        m.form.reset();
+        Object.values(m).filter(el => el.tagName === 'INPUT').forEach(input => input.disabled = false);
+        m.mode.value = modo;
+        
+        if (modo === 'novo') {
+            m.titulo.textContent = 'Adicionar Novo Item';
+        } else if (modo === 'editar') {
+            m.titulo.textContent = 'Editar Opção de Loja';
+            m.id.value = data.id;
+            m.groupId.value = data.groupId;
+            m.nome.value = data.nome;
+            m.preco.value = data.preco;
+            m.quantidade.value = data.quantidade;
+            m.loja.value = data.loja;
+            m.url.value = data.url;
+            m.imagem.value = data.imagem;
+        } else if (modo === 'variacao') {
+            const grupo = agruparProdutos()[data.groupId];
+            const itemBase = grupo[0];
+            m.titulo.textContent = `Adicionar Cotação para "${itemBase.nome}"`;
+            m.groupId.value = itemBase.groupId;
+            m.nome.value = itemBase.nome;
+            m.nome.disabled = true; // Nome do item não muda na variação
+        }
+        m.overlay.classList.remove('hidden');
+        setTimeout(() => m.overlay.classList.remove('opacity-0'), 10);
+    };
+
+    const fecharModal = () => {
+        DOMElements.modal.overlay.classList.add('opacity-0');
+        setTimeout(() => DOMElements.modal.overlay.classList.add('hidden'), 300);
+    };
+
+    DOMElements.tbody.addEventListener('click', e => {
         const button = e.target.closest('button');
         if (!button) return;
 
-        const groupId = button.closest('tr').dataset.groupId;
-        const id = button.closest('tr').dataset.id;
+        const groupRow = button.closest('.group-row');
+        const variationRow = button.closest('.variation-row');
+        const groupId = groupRow?.dataset.groupId || variationRow?.dataset.groupId;
+        const id = variationRow?.dataset.id;
         
         if (button.classList.contains('expand-btn')) {
             const icon = button.querySelector('i');
-            tbody.querySelectorAll(`.variation-row[data-group-id="${groupId}"]`).forEach(row => {
-                row.classList.toggle('visible');
-            });
+            tbody.querySelectorAll(`.variation-row[data-group-id="${groupId}"]`).forEach(row => row.classList.toggle('visible'));
             icon.setAttribute('data-lucide', icon.getAttribute('data-lucide') === 'chevron-down' ? 'chevron-right' : 'chevron-down');
             lucide.createIcons();
-        }
-
-        if (button.classList.contains('activate-btn')) {
-            produtos.forEach(p => {
-                if (p.groupId === groupId) p.ativo = (p.id == id);
-            });
+        } else if (button.classList.contains('activate-btn')) {
+            produtos.forEach(p => { if (p.groupId == groupId) p.ativo = (p.id == id) });
             renderizar();
-        }
-        
-        if (button.classList.contains('delete-btn')) {
-            if (confirm('Tem certeza que deseja excluir esta opção?')) {
+        } else if (button.classList.contains('edit-btn')) {
+            const produtoParaEditar = produtos.find(p => p.id == id);
+            abrirModal('editar', produtoParaEditar);
+        } else if (button.classList.contains('delete-btn')) {
+            if (confirm(`Tem certeza que deseja excluir esta opção de loja?`)) {
                 produtos = produtos.filter(p => p.id != id);
                 produtos = garantirOpcaoAtivaPorGrupo(produtos);
                 renderizar();
             }
-        }
-        
-        if (button.classList.contains('delete-group-btn')) {
-            if (confirm('Tem certeza que deseja excluir este item e TODAS as suas cotações?')) {
+        } else if (button.classList.contains('add-variation-btn')) {
+            abrirModal('variacao', { groupId });
+        } else if (button.classList.contains('delete-group-btn')) {
+            if (confirm(`Tem certeza que deseja excluir o item e TODAS as suas cotações?`)) {
                 produtos = produtos.filter(p => p.groupId !== groupId);
                 renderizar();
             }
         }
-
-        // Adicionar e Editar aqui...
     });
-    
-    // Inicialização
+
+    DOMElements.modal.form.addEventListener('submit', e => {
+        e.preventDefault();
+        const m = DOMElements.modal;
+        const id = m.id.value ? Number(m.id.value) : null;
+        const modo = m.mode.value;
+        const dadosForm = {
+            nome: m.nome.value.trim(),
+            preco: parseFloat(m.preco.value),
+            quantidade: parseInt(m.quantidade.value),
+            loja: m.loja.value.trim(),
+            url: m.url.value.trim(),
+            imagem: m.imagem.value.trim(),
+        };
+
+        if (!dadosForm.nome || !dadosForm.loja || !dadosForm.url || isNaN(dadosForm.preco) || isNaN(dadosForm.quantidade)) {
+            return alert('Preencha os campos obrigatórios.');
+        }
+
+        if (modo === 'novo') {
+            const novoId = gerarId();
+            produtos.push({ ...dadosForm, id: novoId, groupId: novoId.toString(), ativo: true });
+        } else if (modo === 'editar') {
+            const index = produtos.findIndex(p => p.id === id);
+            if (index > -1) produtos[index] = { ...produtos[index], ...dadosForm };
+        } else if (modo === 'variacao') {
+            const groupId = m.groupId.value;
+            // Desativa todas as outras opções do grupo
+            produtos.forEach(p => { if (p.groupId === groupId) p.ativo = false; });
+            produtos.push({ ...dadosForm, id: gerarId(), groupId: groupId, ativo: true });
+        }
+        produtos = garantirOpcaoAtivaPorGrupo(produtos);
+        renderizar();
+        fecharModal();
+    });
+
+    DOMElements.btnAddProduto.addEventListener('click', () => abrirModal('novo'));
+    [DOMElements.modal.btnFechar, DOMElements.modal.btnCancelar].forEach(btn => btn.addEventListener('click', fecharModal));
+    DOMElements.filtroBusca.addEventListener('input', renderizar);
+    DOMElements.btnLimparFiltros.addEventListener('click', () => {
+        DOMElements.filtroBusca.value = '';
+        renderizar();
+    });
+
+    // TODO: Adicionar lógica de exportação aqui...
+
     carregarEstado();
     renderizar();
 });
