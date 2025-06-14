@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Painel de Cotação Inteligente</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .sortable:hover { background-color: #1d4ed8; cursor: pointer; }
+        .sort-indicator { display: inline-block; width: 1em; text-align: center; }
+        .group-row td { font-weight: 600; background-color: #f3f4f6; }
+        .variation-row { display: none; } /* Variações começam escondidas */
+        .variation-row.visible { display: table-row; }
+        .variation-row td:first-child { padding-left: 2.5rem; }
+        .active-variation { background-color: #dbeafe !important; border-left: 4px solid #2563eb; }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen flex flex-col">
+
+    <header class="bg-blue-800 text-white p-4 flex justify-between items-center shadow-md">
+        <h1 class="text-xl font-bold flex items-center gap-2"><i data-lucide="layout-list" class="w-6 h-6"></i>Painel de Cotação Inteligente</h1>
+        <div class="flex items-center gap-2">
+            <button id="btnExportarCSV" class="bg-green-600 hover:bg-green-700 px-3 py-1 rounded flex items-center gap-1 text-sm">
+                Exportar CSV <i data-lucide="file-spreadsheet" class="w-4 h-4"></i>
+            </button>
+            <button id="btnExportarHTML" class="bg-blue-500 hover:bg-blue-600 px-3 py-1 rounded flex items-center gap-1 text-sm">
+                Exportar HTML <i data-lucide="download-cloud" class="w-4 h-4"></i>
+            </button>
+        </div>
+    </header>
+
+    <main class="flex-grow container mx-auto p-4 max-w-7xl">
+        <section class="mb-4 flex flex-wrap gap-4 items-center bg-white p-4 rounded-lg shadow-sm">
+            <input id="filtroBusca" type="search" placeholder="Buscar por nome ou loja..." class="border rounded px-3 py-2 flex-grow min-w-[250px]"/>
+            <button id="btnLimparFiltros" class="bg-gray-300 hover:bg-gray-400 px-3 py-2 rounded text-sm">Limpar</button>
+            <div class="ml-auto flex gap-2">
+                <button id="btnAddProduto" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded flex items-center gap-2">
+                    <i data-lucide="plus-circle" class="w-5 h-5"></i> Novo Item
+                </button>
+            </div>
+        </section>
+
+        <section class="overflow-x-auto bg-white rounded-lg shadow-sm">
+            <table id="tabelaProdutos" class="min-w-full text-left text-sm whitespace-nowrap">
+                <thead class="bg-blue-800 text-white">
+                    <tr>
+                        <th class="px-4 py-3 w-40">Nome do Item / Opções</th>
+                        <th class="px-4 py-3">Loja</th>
+                        <th class="px-4 py-3">Preço (R$)</th>
+                        <th class="px-4 py-3">Qtd</th>
+                        <th class="px-4 py-3">Subtotal (R$)</th>
+                        <th class="px-4 py-3">URL</th>
+                        <th class="px-4 py-3 w-32">Ações</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+            <p id="msgSemResultados" class="p-6 text-center text-gray-600 hidden">Nenhum produto encontrado.</p>
+        </section>
+
+        <section class="mt-6 flex gap-6 flex-wrap justify-end text-gray-800 font-semibold text-lg">
+            <div>Total de Grupos: <span id="totalGrupos" class="font-bold text-blue-800">0</span></div>
+            <div>Orçamento (Menores Preços): <span id="valorTotal" class="font-bold text-green-700">R$ 0,00</span></div>
+        </section>
+    </main>
+
+    <div id="modalProduto" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden">
+        </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    let produtos = [];
+    let sortConfig = { key: 'nome', order: 'asc' }; // Ordenação padrão
+
+    // Carregar do localStorage
+    const carregarEstado = () => {
+        const json = localStorage.getItem('produtosCotacaoV3');
+        produtos = json ? JSON.parse(json) : [];
+        // Garante que cada grupo tenha uma opção ativa
+        produtos = garantirOpcaoAtivaPorGrupo(produtos);
+    };
+
+    const salvarEstado = () => localStorage.setItem('produtosCotacaoV3', JSON.stringify(produtos));
+
+    const DOMElements = { /* ... Mantenha o mesmo objeto DOM da versão anterior ... */ };
+    
+    const garantirOpcaoAtivaPorGrupo = (listaProdutos) => {
+        const grupos = agruparProdutos(listaProdutos);
+        Object.values(grupos).forEach(grupo => {
+            const temAtiva = grupo.some(p => p.ativo);
+            if (!temAtiva && grupo.length > 0) {
+                // Se nenhum está ativo, ativa o de menor preço
+                let menorPrecoItem = grupo.reduce((min, p) => p.preco < min.preco ? p : min, grupo[0]);
+                menorPrecoItem.ativo = true;
+            }
+        });
+        return listaProdutos;
+    };
+
+    const agruparProdutos = (listaProdutos) => {
+        return listaProdutos.reduce((acc, p) => {
+            (acc[p.groupId] = acc[p.groupId] || []).push(p);
+            return acc;
+        }, {});
+    };
+
+    const calcularTotais = () => {
+        const grupos = agruparProdutos(produtos);
+        document.getElementById('totalGrupos').textContent = Object.keys(grupos).length;
+        
+        const valorTotal = Object.values(grupos).reduce((total, grupo) => {
+            const itemAtivo = grupo.find(p => p.ativo) || grupo[0]; // Pega o ativo ou o primeiro como fallback
+            if (itemAtivo) {
+                total += itemAtivo.preco * itemAtivo.quantidade;
+            }
+            return total;
+        }, 0);
+        document.getElementById('valorTotal').textContent = valorTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    };
+
+    const renderizar = () => {
+        const tbody = document.querySelector('#tabelaProdutos tbody');
+        tbody.innerHTML = '';
+        const termoBusca = document.getElementById('filtroBusca').value.trim().toLowerCase();
+        
+        const grupos = agruparProdutos(produtos);
+        let gruposFiltrados = Object.values(grupos).filter(grupo => {
+            return grupo.some(p => p.nome.toLowerCase().includes(termoBusca) || p.loja.toLowerCase().includes(termoBusca));
+        });
+
+        // Ordenar os grupos pelo nome do primeiro item
+        gruposFiltrados.sort((a, b) => a[0].nome.localeCompare(b[0].nome));
+
+        document.getElementById('msgSemResultados').classList.toggle('hidden', gruposFiltrados.length > 0);
+
+        gruposFiltrados.forEach(grupo => {
+            const itemAtivo = grupo.find(p => p.ativo) || grupo[0];
+            const variacoes = grupo.filter(p => p.id !== itemAtivo.id);
+
+            // Renderiza a linha principal do grupo (item ativo)
+            const trGroup = document.createElement('tr');
+            trGroup.className = 'group-row border-b';
+            trGroup.dataset.groupId = itemAtivo.groupId;
+
+            const subtotal = itemAtivo.preco * itemAtivo.quantidade;
+            trGroup.innerHTML = `
+                <td class="px-4 py-3 flex items-center gap-2">
+                    ${grupo.length > 1 ? `<button class="expand-btn text-blue-600"><i data-lucide="chevron-right" class="w-4 h-4"></i></button>` : '<div class="w-6"></div>'}
+                    <span>${itemAtivo.nome} ${grupo.length > 1 ? `<span class="text-xs font-normal text-gray-500">(+${variacoes.length})</span>` : ''}</span>
+                </td>
+                <td class="px-4 py-3">${itemAtivo.loja}</td>
+                <td class="px-4 py-3">${itemAtivo.preco.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                <td class="px-4 py-3">${itemAtivo.quantidade}</td>
+                <td class="px-4 py-3 font-semibold">${subtotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                <td class="px-4 py-3"><a href="${itemAtivo.url}" target="_blank" class="text-blue-600 hover:underline">Visitar</a></td>
+                <td class="px-4 py-3">
+                    <div class="flex gap-2">
+                        <button class="add-variation-btn text-green-600" title="Adicionar Cotação a este Grupo"><i data-lucide="plus-circle" class="w-5 h-5"></i></button>
+                        <button class="delete-group-btn text-red-600" title="Excluir Grupo Inteiro"><i data-lucide="trash-2" class="w-5 h-5"></i></button>
+                    </div>
+                </td>
+            `;
+            tbody.appendChild(trGroup);
+
+            // Renderiza as linhas das variações (escondidas)
+            grupo.forEach(variacao => {
+                const trVar = document.createElement('tr');
+                trVar.className = 'variation-row border-b hover:bg-gray-50';
+                trVar.dataset.groupId = variacao.groupId;
+                trVar.dataset.id = variacao.id;
+                if (variacao.ativo) trVar.classList.add('active-variation');
+                
+                const subtotalVar = variacao.preco * variacao.quantidade;
+                trVar.innerHTML = `
+                    <td class="px-4 py-3 text-gray-700">↳ Opção Loja</td>
+                    <td class="px-4 py-3">${variacao.loja}</td>
+                    <td class="px-4 py-3">${variacao.preco.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                    <td class="px-4 py-3">${variacao.quantidade}</td>
+                    <td class="px-4 py-3 font-semibold">${subtotalVar.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                    <td class="px-4 py-3"><a href="${variacao.url}" target="_blank" class="text-blue-600 hover:underline">Visitar</a></td>
+                    <td class="px-4 py-3">
+                        <div class="flex gap-2">
+                            <button class="activate-btn text-gray-500" title="Tornar esta a opção principal"><i data-lucide="check-circle-2" class="w-5 h-5"></i></button>
+                            <button class="edit-btn text-blue-600" title="Editar esta Opção"><i data-lucide="edit-2" class="w-5 h-5"></i></button>
+                            <button class="delete-btn text-red-600" title="Excluir esta Opção"><i data-lucide="trash-2" class="w-5 h-5"></i></button>
+                        </div>
+                    </td>
+                `;
+                tbody.appendChild(trVar);
+            });
+        });
+
+        calcularTotais();
+        salvarEstado();
+        lucide.createIcons();
+    };
+
+    // --- Lógica de Eventos ---
+    const tbody = document.querySelector('#tabelaProdutos tbody');
+    tbody.addEventListener('click', e => {
+        const button = e.target.closest('button');
+        if (!button) return;
+
+        const groupId = button.closest('tr').dataset.groupId;
+        const id = button.closest('tr').dataset.id;
+        
+        if (button.classList.contains('expand-btn')) {
+            const icon = button.querySelector('i');
+            tbody.querySelectorAll(`.variation-row[data-group-id="${groupId}"]`).forEach(row => {
+                row.classList.toggle('visible');
+            });
+            icon.setAttribute('data-lucide', icon.getAttribute('data-lucide') === 'chevron-down' ? 'chevron-right' : 'chevron-down');
+            lucide.createIcons();
+        }
+
+        if (button.classList.contains('activate-btn')) {
+            produtos.forEach(p => {
+                if (p.groupId === groupId) p.ativo = (p.id == id);
+            });
+            renderizar();
+        }
+        
+        if (button.classList.contains('delete-btn')) {
+            if (confirm('Tem certeza que deseja excluir esta opção?')) {
+                produtos = produtos.filter(p => p.id != id);
+                produtos = garantirOpcaoAtivaPorGrupo(produtos);
+                renderizar();
+            }
+        }
+        
+        if (button.classList.contains('delete-group-btn')) {
+            if (confirm('Tem certeza que deseja excluir este item e TODAS as suas cotações?')) {
+                produtos = produtos.filter(p => p.groupId !== groupId);
+                renderizar();
+            }
+        }
+
+        // Adicionar e Editar aqui...
+    });
+    
+    // Inicialização
+    carregarEstado();
+    renderizar();
+});
+</script>
+</body>
+</html>
